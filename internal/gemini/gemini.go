@@ -7,15 +7,34 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
+
+var (
+	// Cache the project directory to avoid repeated os.Executable() calls
+	projectDirOnce sync.Once
+	cachedProjectDir string
+	projectDirErr    error
+)
+
+func getProjectDir() (string, error) {
+	projectDirOnce.Do(func() {
+		exePath, err := os.Executable()
+		if err != nil {
+			projectDirErr = fmt.Errorf("error getting executable path: %w", err)
+			return
+		}
+		cachedProjectDir = filepath.Dir(exePath)
+	})
+	return cachedProjectDir, projectDirErr
+}
 
 // AskGemini executes the gemini cli and returns the analysis as a string.
 func AskGemini(maxTemp float64, topProcess *diagnostics.ProcessInfo) (string, error) {
-	exePath, err := os.Executable()
+	projectDir, err := getProjectDir()
 	if err != nil {
-		return "", fmt.Errorf("error getting executable path: %w", err)
+		return "", err
 	}
-	projectDir := filepath.Dir(exePath)
 
 	prompt := fmt.Sprintf(
 		`You are an expert system analyst. I am a script providing you with data about a user's computer that is overheating. `+

@@ -7,6 +7,9 @@ import (
 	"strconv"
 )
 
+// Pre-compiled regex for better performance - avoids recompilation on every call
+var coreTemperatureRegex = regexp.MustCompile(`Core \d+:\s+\+([\d\.]+)°C`)
+
 func GetMaxCpuTemperature() (float64, error) {
 	cmd := exec.Command("sensors")
 	out, err := cmd.Output()
@@ -14,9 +17,7 @@ func GetMaxCpuTemperature() (float64, error) {
 		return 0, err
 	}
 
-	output := string(out)
-	re := regexp.MustCompile(`Core \d+:\s+\+([\d\.]+)°C`)
-	matches := re.FindAllStringSubmatch(output, -1)
+	matches := coreTemperatureRegex.FindAllStringSubmatch(string(out), -1)
 
 	var maxTemp float64
 	if len(matches) == 0 {

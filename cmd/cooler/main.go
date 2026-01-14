@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -51,8 +52,27 @@ type dataMsg struct {
 type geminiAnalysisMsg string
 
 func fetchData() tea.Msg {
-	maxTemp, err1 := diagnostics.GetMaxCpuTemperature()
-	topProcess, err2 := diagnostics.GetTopProcessInfo()
+	// Fetch temperature and process info in parallel for better performance
+	var maxTemp float64
+	var topProcess *diagnostics.ProcessInfo
+	var err1, err2 error
+
+	done := make(chan struct{}, 2)
+
+	go func() {
+		maxTemp, err1 = diagnostics.GetMaxCpuTemperature()
+		done <- struct{}{}
+	}()
+
+	go func() {
+		topProcess, err2 = diagnostics.GetTopProcessInfo()
+		done <- struct{}{}
+	}()
+
+	// Wait for both goroutines to complete
+	<-done
+	<-done
+
 	if err1 != nil || err2 != nil {
 		return dataMsg{err: fmt.Errorf("failed to fetch system data")}
 	}
@@ -156,49 +176,55 @@ func (m model) View() string {
 		return errorStyle.Render(fmt.Sprintf("Error: %v", m.err))
 	}
 
-	s := titleStyle.Render(asciiArt)
-	s += "\n--- Cooler (Go/Bubble Tea Edition) ---\n"
+	// Use strings.Builder for efficient string concatenation
+	var sb strings.Builder
+	sb.Grow(512) // Pre-allocate reasonable capacity to reduce allocations
+
+	sb.WriteString(titleStyle.Render(asciiArt))
+	sb.WriteString("\n--- Cooler (Go/Bubble Tea Edition) ---\n")
 
 	if m.loading {
-		s += docStyle.Render("Loading...")
+		sb.WriteString(docStyle.Render("Loading..."))
 	} else if m.topProcess != nil {
 		cpuFloat, _ := strconv.ParseFloat(m.topProcess.CPU, 64)
-		diag := fmt.Sprintf("🌡️ Max CPU Temp: %.1f°C\n", m.maxTemp)
-		diag += fmt.Sprintf("🔥 Top Process: '%s' (PID: %s) @ %.1f%% CPU", m.topProcess.Name, m.topProcess.PID, cpuFloat)
-		s += docStyle.Render(diag)
+		diag := fmt.Sprintf("🌡️ Max CPU Temp: %.1f°C\n🔥 Top Process: '%s' (PID: %s) @ %.1f%% CPU",
+			m.maxTemp, m.topProcess.Name, m.topProcess.PID, cpuFloat)
+		sb.WriteString(docStyle.Render(diag))
 	} else {
-		s += docStyle.Render("✅ No significant CPU usage detected.")
+		sb.WriteString(docStyle.Render("✅ No significant CPU usage detected."))
 	}
 
-	menu := ""
+	// Build menu with strings.Builder
+	var menuBuilder strings.Builder
+	menuBuilder.Grow(128)
 	for i, choice := range m.choices {
-		cursor := " " // no cursor
 		if m.cursor == i {
-			cursor = ">" // cursor!
+			menuBuilder.WriteString("> ")
+		} else {
+			menuBuilder.WriteString("  ")
 		}
-		menu += fmt.Sprintf("%s %s\n", cursor, choice)
+		menuBuilder.WriteString(choice)
+		menuBuilder.WriteByte('\n')
 	}
-	s += menuStyle.Render(menu)
+	sb.WriteString(menuStyle.Render(menuBuilder.String()))
 
 	if m.geminiAnalysis != "" {
 		// Calculate width for the box, leaving some margin
-		// docStyle has 2 units of margin on each side, so 4 total horizontal margin
-		// geminiResultStyle has 1 unit of padding on each side, and 2 units for border
-		// So total horizontal space taken by styling is 4 (docStyle margin) + 2 (padding) + 2 (border) = 8
 		boxWidth := m.width - docStyle.GetHorizontalFrameSize() - geminiResultStyle.GetHorizontalFrameSize()
-		if boxWidth < 10 { // Ensure a minimum width
+		if boxWidth < 10 {
 			boxWidth = 10
 		}
-		analysisStyle := geminiResultStyle.Copy().Width(boxWidth)
-		s += "\n" + analysisStyle.Render(m.geminiAnalysis)
+		analysisStyle := geminiResultStyle.Width(boxWidth)
+		sb.WriteByte('\n')
+		sb.WriteString(analysisStyle.Render(m.geminiAnalysis))
 	}
 
 	if m.status != "" {
-		s += statusStyle.Render("\nStatus: " + m.status)
+		sb.WriteString(statusStyle.Render("\nStatus: " + m.status))
 	}
 
-	s += "\n(q to quit)"
-	return s
+	sb.WriteString("\n(q to quit)")
+	return sb.String()
 }
 
 func main() {

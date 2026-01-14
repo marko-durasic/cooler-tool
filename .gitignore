@@ -1,0 +1,18 @@
+# Binary files
+cooler
+cooler-*
+*.exe
+
+# Test coverage
+coverage.out
+coverage.html
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
