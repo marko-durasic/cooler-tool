@@ -34,8 +34,11 @@ else
 fi
 
 # --- 2. Build the executable ---
-echo "Building the Cooler executable..."
-go build -o cooler ./cmd/cooler
+echo "Building the Cooler executable with optimizations..."
+# Build flags explanation:
+# -ldflags="-s -w": Strip symbol table and debug info for smaller binary
+# -trimpath: Remove file system paths from compiled binary for reproducibility
+go build -ldflags="-s -w" -trimpath -o cooler ./cmd/cooler
 if [ $? -eq 0 ]; then
     echo "Build successful."
 else
